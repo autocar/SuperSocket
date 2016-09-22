@@ -14,7 +14,7 @@ const
   CONNECTION_POOL_SIZE = 4096;
 
   /// Buffer size of TPacketReader
-  PACKETREADER_PAGE_SIZE = 8 * 1024;
+  PACKETREADER_PAGE_SIZE = PACKET_SIZE * 16;
 
 type
   TPacketDirection = (pdNone, pdAll, pdOther);
