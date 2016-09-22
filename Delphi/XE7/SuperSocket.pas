@@ -372,7 +372,7 @@ type
     procedure on_FClientScheduler_TaskDisconnect(Sender:TObject);
     procedure on_FClientScheduler_Disconnected(Sender:TObject);
   private
-    FUseNagel: boolean;
+    FUseNagle: boolean;
     FOnConnected: TNotifyEvent;
     FOnDisconnected: TNotifyEvent;
     FOnReceived: TSuperSocketClientReceivedEvent;
@@ -385,7 +385,7 @@ type
 
     procedure Send(APacket:PPacket);
   published
-    property UseNagel : boolean read FUseNagel write FUseNagel;
+    property UseNagel : boolean read FUseNagle write FUseNagle;
   published
     property OnConnected : TNotifyEvent read FOnConnected write FOnConnected;
     property OnDisconnected : TNotifyEvent read FOnDisconnected write FOnDisconnected;
@@ -1507,7 +1507,7 @@ var
   ClientSocketUnit : TClientSocketUnit;
 begin
   ClientSocketUnit := TClientSocketUnit.Create;
-  ClientSocketUnit.UseNagel := FUseNagel;
+  ClientSocketUnit.UseNagel := FUseNagle;
 
   if not ClientSocketUnit.Connect(AHost, APort) then begin
     ClientSocketUnit.Free;
@@ -1525,7 +1525,7 @@ constructor TSuperSocketClient.Create(AOwner: TComponent);
 begin
   inherited;
 
-  FUseNagel := false;
+  FUseNagle := false;
 
   FClientScheduler := TClientScheduler.Create;
   FClientScheduler.OnTaskConnected := on_FClientScheduler_TaskConnected;
