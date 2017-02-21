@@ -1320,6 +1320,10 @@ destructor TClientSocketUnit.Destroy;
 begin
   if FSimpleThread <> nil then FSimpleThread.TerminateNow;
 
+  closesocket(FSocket);
+
+  FreeAndNil(FPacketReader);
+
   inherited;
 end;
 
@@ -1354,9 +1358,6 @@ begin
 
     if Assigned(FOnReceived) then FOnReceived(Self, PacketPtr);
   end;
-
-  closesocket(FSocket);
-  FreeAndNil(FPacketReader);
 end;
 
 function TClientSocketUnit.Receive: PPacket;
@@ -1414,6 +1415,10 @@ destructor TClientScheduler.Destroy;
 begin
   FSimpleThread.TerminateNow;
 
+  FreeAndNil(FQueue);
+
+  ReleaseSocketUnit;
+
   inherited;
 end;
 
@@ -1468,10 +1473,6 @@ begin
       Schedule.Free;
     end;
   end;
-
-  FreeAndNil(FQueue);
-
-  ReleaseSocketUnit
 end;
 
 procedure TClientScheduler.ReleaseSocketUnit;
