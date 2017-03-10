@@ -8,7 +8,7 @@ uses
 
 const
   /// Packet size limitation including header.
-  PACKET_SIZE = 2048;
+  PACKET_SIZE = 4096;
 
   /// Concurrent connection limitation
   CONNECTION_POOL_SIZE = 4096;
@@ -131,11 +131,15 @@ type
     UserData : pointer;
     RoomID : string;
     Room : TObject;
+    UserID : string;
     UserName : string;
     UserLevel : integer;
 
     /// Local IP address that TSuperSocketClient send after connected.
     LocalIP : string;
+
+    LocalPort : integer;
+    RemotePort : integer;
 
     property ID : integer read FID;
 
@@ -238,6 +242,7 @@ type
   private
     procedure TerminateAll;
 
+    /// 사용 가능한 Connection 객체를 리턴한다.
     function Add(ASocket:integer; const ARemoteIP:string):TConnection;
     procedure Remove(AConnection:TConnection);
   public
@@ -538,7 +543,13 @@ constructor TConnection.Create;
 begin
   inherited;
 
+  FSocket := 0;
+  RoomID := '';
+  Room := nil;
+
   FPacketReader := TPacketReader.Create;
+
+  do_Init;
 end;
 
 destructor TConnection.Destroy;
@@ -560,14 +571,15 @@ begin
   if FSocket <> INVALID_SOCKET then closesocket(FSocket);
   FSocket := INVALID_SOCKET;
 
+  IsLogined := false;
+
   LocalIP := '';
   FRemoteIP := '';
 
-  IsLogined := false;
+  LocalPort := 0;
+  RemotePort := 0;
 
   UserData := nil;
-  RoomID := '';
-  Room := nil;
   UserName := '';
   UserLevel := 0;
 
@@ -596,6 +608,7 @@ begin
     'ConnectionID=' + IntToStr(ID) + '<rYu>' +
     'LocalIP=' + LocalIP + '<rYu>' +
     'RemoteIP=' + FRemoteIP + '<rYu>' +
+    'UserID=' + UserID + '<rYu>' +
     'UserName=' + UserName + '<rYu>' +
     'UserLevel=' + IntToStr(UserLevel) + '<rYu>';
 end;
@@ -823,12 +836,7 @@ begin
 
       ioAccepted: begin
         if Assigned(FOnAccepted) then FOnAccepted(Transferred, pData);
-
-        if pData^.Connection <> nil then begin
-          pData^.Connection.FSocket := pData^.Socket;
-          pData^.Connection.FRemoteIP := pData^.RemoteIP;
-          Receive(pData^.Connection);
-        end;
+        if pData^.Connection <> nil then Receive(pData^.Connection);
       end;
 
       ioSend: ;
@@ -933,7 +941,7 @@ end;
 
 { TConnectionList }
 
-function TConnectionList.Add(ASocket: integer; const ARemoteIP: string): TConnection;
+function TConnectionList.Add(ASocket:integer; const ARemoteIP:string): TConnection;
 var
   iCount : integer;
 begin
@@ -951,6 +959,10 @@ begin
 
     if FConnections[DWord(FConnectionID) mod CONNECTION_POOL_SIZE].FID = 0 then begin
       Result := FConnections[DWord(FConnectionID) mod CONNECTION_POOL_SIZE];
+      Result.FSocket := ASocket;
+      Result.FRemoteIP := ARemoteIP;
+      Result.RoomID := '';
+      Result.Room := nil;
       Break;
     end;
   end;
@@ -968,7 +980,6 @@ begin
   for Loop := 0 to CONNECTION_POOL_SIZE-1 do begin
     FConnections[Loop] := TConnection.Create;
     FConnections[Loop].FSuperSocketServer := ASuperSocketServer;
-    FConnections[Loop].do_Init;
   end;
 end;
 
@@ -1294,7 +1305,7 @@ begin
   FSocket := Socket(AF_INET, SOCK_STREAM, 0);
   Addr.sin_family := AF_INET;
   Addr.sin_port := htons(APort);
-  Addr.sin_addr.S_addr := INET_ADDR(PAnsiChar(GetIP(AHost)));
+  Addr.sin_addr.S_addr := INET_ADDR(PAnsiChar(GetIP(AnsiString(AHost))));
 
   Result := WinSock2.connect(FSocket, TSockAddr(Addr), SizeOf(Addr)) = 0;
 
@@ -1352,7 +1363,7 @@ begin
     PacketPtr := Receive;
 
     if PacketPtr = nil then begin
-      Sleep(5);
+      Sleep(1);
       Continue;
     end;
 
