@@ -3,21 +3,35 @@ unit UDPSocket;
 interface
 
 uses
-  WinSock, SimpleThread,
-  Windows, Classes, SysUtils, SyncObjs;
+  RyuLibBase, SimpleThread, DynamicQueue, SuspensionQueue, ThreadUtils,
+  Windows, Classes, SysUtils, WinSock;
 
 type
+  TPacketUDP = class
+    Host : AnsiString;
+    Port : integer;
+    Memory : TMemory;
+    constructor Create(const AHost:string; APort:integer; AData:pointer; ASize:integer); reintroduce;
+    destructor Destroy; override;
+  end;
+
   TUDPReceivedEvent = procedure(const APeerIP:string; APeerPort:integer; AData:pointer; ASize:integer) of object;
 
   TUDPSocket = class(TComponent)
   private
-    FCS : TCriticalSection;
     FSocket : TSocket;
+    FSendQueue : TDynamicQueue;
+    FRecvQueue : TSuspensionQueue<TPacketUDP>;
     FBuffer : Pointer;
     function do_Bind:boolean;
+    procedure do_Send;
+    procedure do_Receive;
   private
-    FSimpleThread : TSimpleThread;
-    procedure on_FSimpleThread_Execute(ASimpleThread:TSimpleThread);
+    FMainThread : TSimpleThread;
+    procedure on_FMainThread_Execute(ASimpleThread:TSimpleThread);
+  private
+    FRecvThread : TSimpleThread;
+    procedure on_FRecvThread_Execute(ASimpleThread:TSimpleThread);
   private
     FBufferSize : integer;
     FPort: integer;
@@ -52,6 +66,24 @@ var
 
 implementation
 
+{ TPacketUDP }
+
+constructor TPacketUDP.Create(const AHost:string; APort:integer; AData:pointer; ASize:integer);
+begin
+  inherited Create;
+
+  Host := AnsiString(AHost);
+  Port := APort;
+  Memory := TMemory.Create(AData, ASize);
+end;
+
+destructor TPacketUDP.Destroy;
+begin
+  if Memory <> nil then FreeAndNil(Memory);
+
+  inherited;
+end;
+
 { TUDPSocket }
 
 constructor TUDPSocket.Create(AOwner: TComponent);
@@ -62,23 +94,32 @@ begin
   FActive := false;
   FIsServer := false;
   FBufferSize := 1024 * 1024;
-  FTimeOutRead := 5;
+  FTimeOutRead := 1;
   FTimeOutWrite := 5;
 
   GetMem(FBuffer, FBufferSize);
 
-  FCS := TCriticalSection.Create;
+  FSendQueue := TDynamicQueue.Create(true);
+  FRecvQueue := TSuspensionQueue<TPacketUDP>.Create;
 
-  FSimpleThread := TSimpleThread.Create('TUDPSocket', on_FSimpleThread_Execute);
+  FMainThread := TSimpleThread.Create('TUDPSocket.FMainThread', on_FMainThread_Execute);
+  FRecvThread := TSimpleThread.Create('TUDPSocket.FRecvThread', on_FRecvThread_Execute);
+
+  RemoveThreadObject(FMainThread.Handle);
+  SetThreadPriority(FMainThread.Handle, THREAD_PRIORITY_TIME_CRITICAL);
 end;
 
 destructor TUDPSocket.Destroy;
 begin
   Stop;
 
-  FSimpleThread.TerminateNow;
+  FMainThread.TerminateNow;
+
+  FreeMem(FBuffer);
 
 //  FreeAndNil(FSimpleThread);
+//  FreeAndNil(FSendQueue);
+//  FreeAndNil(FRecvQueue);
 
   inherited;
 end;
@@ -95,12 +136,42 @@ begin
   Result := bind(FSocket, SockAddr, sizeof(SockAddr)) > -1;
 end;
 
-procedure TUDPSocket.on_FSimpleThread_Execute(ASimpleThread: TSimpleThread);
+procedure TUDPSocket.do_Receive;
 var
   iBytes, iSizeOfAddr : integer;
   SockAddr : TSockAddr;
-  Data : pointer;
-  ReceivedEvent : TUDPReceivedEvent;
+begin
+  iSizeOfAddr := SizeOf(SockAddr);
+  iBytes := recvfrom(FSocket, FBuffer^, FBufferSize, 0, SockAddr, iSizeOfAddr);
+
+  if iBytes > 0 then
+    FRecvQueue.Push(
+      TPacketUDP.Create(String(inet_ntoa(SockAddr.sin_addr)), ntohs(SockAddr.sin_port), FBuffer, iBytes)
+    );
+end;
+
+procedure TUDPSocket.do_Send;
+var
+  SockAddr : TSockAddr;
+  PacketUDP : TPacketUDP;
+begin
+  if FSendQueue.Pop( Pointer(PacketUDP) ) = false then Exit;
+
+  try
+    FillChar(SockAddr, SizeOf(SockAddr), 0);
+
+    SockAddr.sin_family := AF_INET;
+    SockAddr.sin_port := htons(PacketUDP.Port);
+    SockAddr.sin_addr.S_addr := inet_addr(PAnsiChar(PacketUDP.Host));
+
+    if FSocket <> -1 then
+      WinSock.SendTo(FSocket, PacketUDP.Memory.Data^, PacketUDP.Memory.Size, 0, SockAddr, SizeOf(TSockAddr));
+  finally
+    PacketUDP.Free;
+  end;
+end;
+
+procedure TUDPSocket.on_FMainThread_Execute(ASimpleThread: TSimpleThread);
 begin
   while ASimpleThread.Terminated = false do begin
     if (FSocket = -1) or (FIsServer = false) then begin
@@ -109,28 +180,27 @@ begin
     end;
 
     try
-      iSizeOfAddr := SizeOf(SockAddr);
-      iBytes := recvfrom(FSocket, FBuffer^, FBufferSize, 0, SockAddr, iSizeOfAddr);
-
-      if iBytes <= 0 then Continue;
-
-      ReceivedEvent := FOnReceived;
-
-      GetMem(Data, iBytes);
-      try
-        Move(FBuffer^, Data^, iBytes);
-        if Assigned(ReceivedEvent) then
-          ReceivedEvent(String(inet_ntoa(SockAddr.sin_addr)), ntohs(SockAddr.sin_port), Data, iBytes);
-      finally
-        FreeMem(Data);
-      end;
+      while FSendQueue.IsEmpty = false do do_Send;
+      do_Receive;
     except
       ASimpleThread.Sleep(5);
     end;
   end;
+end;
 
-  FreeMem(FBuffer);
-  FreeAndNil(FCS);
+procedure TUDPSocket.on_FRecvThread_Execute(ASimpleThread: TSimpleThread);
+var
+  PacketUDP : TPacketUDP;
+begin
+  while ASimpleThread.Terminated = false do begin
+    PacketUDP := FRecvQueue.Pop;
+    try
+      if Assigned(FOnReceived) then
+        FOnReceived(String(PacketUDP.Host), PacketUDP.Port, PacketUDP.Memory.Data, PacketUDP.Memory.Size);
+    finally
+      PacketUDP.Free;
+    end;
+  end;
 end;
 
 procedure TUDPSocket.SendTo(const AHost: string; APort: integer; AText: string);
@@ -148,54 +218,27 @@ end;
 
 procedure TUDPSocket.SendTo(const AHost: string; APort: integer; AData: pointer;
   ASize: integer);
-var
-  Host : AnsiString;
-  SockAddr : TSockAddr;
 begin
-  Host := AnsiString(AHost);
-
-  FillChar(SockAddr, SizeOf(SockAddr), 0);
-  SockAddr.sin_family := AF_INET;
-  SockAddr.sin_port := htons(APort);
-  SockAddr.sin_addr.S_addr := inet_addr(PAnsiChar(Host));
-
-  FCS.Enter;
-  try
-    if FSocket = -1 then Exit;
-
-    WinSock.SendTo(FSocket, AData^, ASize, 0, SockAddr, SizeOf(TSockAddr));
-  finally
-    FCS.Leave;
-  end;
+  if FSocket <> -1 then FSendQueue.Push( Pointer(TPacketUDP.Create(AHost, APort, AData, ASize)) );
 end;
 
 procedure TUDPSocket.SetBufferSize(const Value: integer);
 begin
-  FCS.Acquire;
-  try
-    if FSocket <> -1 then
-      raise Exception.Create('Socket has opened.  Close it before you change this property.');
+  if FSocket <> -1 then
+    raise Exception.Create('Socket has opened.  Close it before you change this property.');
 
-    FBufferSize := Value;
+  FBufferSize := Value;
 
-    FreeMem(FBuffer);
-    GetMem(FBuffer, Value);
-  finally
-    FCS.Release;
-  end;
+  FreeMem(FBuffer);
+  GetMem(FBuffer, Value);
 end;
 
 procedure TUDPSocket.SetPort(const Value: integer);
 begin
-  FCS.Acquire;
-  try
-    if FSocket <> -1 then
-      raise Exception.Create('Socket has opened.  Close it before you change this property.');
+  if FSocket <> -1 then
+    raise Exception.Create('Socket has opened.  Close it before you change this property.');
 
-    FPort := Value;
-  finally
-    FCS.Release;
-  end;
+  FPort := Value;
 end;
 
 procedure TUDPSocket.Start(ANeedBinding:boolean);
@@ -205,40 +248,35 @@ var
 begin
   Stop;
 
-  FCS.Acquire;
-  try
-    FIsServer := ANeedBinding;
+  FIsServer := ANeedBinding;
 
-    FSocket := socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-    if FSocket = -1 then
-      raise Exception.Create('Can''t open Socket');
+  FSocket := socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+  if FSocket = -1 then
+    raise Exception.Create('Can''t open Socket');
 
-    iBufferSize := FBufferSize;
-    setsockopt(FSocket, SOL_SOCKET, SO_SNDBUF, @iBufferSize, SizeOf(iBufferSize));
-    setsockopt(FSocket, SOL_SOCKET, SO_RCVBUF, @iBufferSize, SizeOf(iBufferSize));
+  iBufferSize := FBufferSize;
+  setsockopt(FSocket, SOL_SOCKET, SO_SNDBUF, @iBufferSize, SizeOf(iBufferSize));
+  setsockopt(FSocket, SOL_SOCKET, SO_RCVBUF, @iBufferSize, SizeOf(iBufferSize));
 
-    iTimeOutRead := FTimeOutRead;
-    setsockopt(FSocket, SOL_SOCKET, SO_RCVTIMEO, @iTimeOutRead, SizeOf(iTimeOutRead));
+  iTimeOutRead := FTimeOutRead;
+  setsockopt(FSocket, SOL_SOCKET, SO_RCVTIMEO, @iTimeOutRead, SizeOf(iTimeOutRead));
 
-    iTimeOutWrite := FTimeOutWrite;
-    setsockopt(FSocket, SOL_SOCKET, SO_SNDTIMEO, @iTimeOutWrite, SizeOf(iTimeOutWrite));
+  iTimeOutWrite := FTimeOutWrite;
+  setsockopt(FSocket, SOL_SOCKET, SO_SNDTIMEO, @iTimeOutWrite, SizeOf(iTimeOutWrite));
 
-    if ANeedBinding then begin
-      if FPort = 0 then begin
-        FPort := $FFFF;
-        while (FActive = false) and (FPort > 0) do begin
-          FPort := FPort - 1;
-          FActive := do_Bind;
-        end;
-      end else begin
+  if ANeedBinding then begin
+    if FPort = 0 then begin
+      FPort := $FFFF;
+      while (FActive = false) and (FPort > 0) do begin
+        FPort := FPort - 1;
         FActive := do_Bind;
       end;
-
-      if not FActive then
-        raise Exception.Create('The port is already using.');
+    end else begin
+      FActive := do_Bind;
     end;
-  finally
-    FCS.Release;
+
+    if not FActive then
+      raise Exception.Create('The port is already using.');
   end;
 end;
 
@@ -247,14 +285,9 @@ begin
   FActive := false;
   FIsServer := false;
 
-  FCS.Acquire;
-  try
-    if FSocket <> -1 then begin
-      closesocket(FSocket);
-      FSocket := -1;
-    end;
-  finally
-    FCS.Release;
+  if FSocket <> -1 then begin
+    closesocket(FSocket);
+    FSocket := -1;
   end;
 end;
 
