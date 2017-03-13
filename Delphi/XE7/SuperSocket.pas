@@ -343,7 +343,7 @@ type
   strict private
     FQueue : TSuspensionQueue<TSchedule>;
     procedure do_Send(APacket:PPacket);
-  strict private
+  private
     FClientSocketUnit : TClientSocketUnit;
     procedure on_FClientSocketUnit_Disconnected(Sender:TObject);
   strict private
@@ -381,6 +381,7 @@ type
     FOnConnected: TNotifyEvent;
     FOnDisconnected: TNotifyEvent;
     FOnReceived: TSuperSocketClientReceivedEvent;
+    function GetConnected: boolean;
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
@@ -390,6 +391,7 @@ type
 
     procedure Send(APacket:PPacket);
   published
+    property Connected : boolean read GetConnected;
     property UseNagel : boolean read FUseNagle write FUseNagle;
   published
     property OnConnected : TNotifyEvent read FOnConnected write FOnConnected;
@@ -1561,6 +1563,11 @@ end;
 procedure TSuperSocketClient.Disconnect;
 begin
   FClientScheduler.TaskDisconnect;
+end;
+
+function TSuperSocketClient.GetConnected: boolean;
+begin
+  Result := (FClientScheduler.FClientSocketUnit <> nil) and (FClientScheduler.FClientSocketUnit.FSocket <> INVALID_SOCKET);
 end;
 
 procedure TSuperSocketClient.on_FClientScheduler_TaskConnected(AClientSocketUnit:TClientSocketUnit);
