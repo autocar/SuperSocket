@@ -234,10 +234,10 @@ type
 
   TConnectionList = class
   private
-    FConnectionID : integer;
-    FConnectionCount : integer;
+    FID : integer;
+    FCount : integer;
     FConnections : array [0..CONNECTION_POOL_SIZE-1] of TConnection;
-    function GetConnectionCount:integer;
+    function GetCount:integer;
     function GetConnection(AConnectionID:integer):TConnection;
   private
     procedure TerminateAll;
@@ -249,7 +249,7 @@ type
     constructor Create(ASuperSocketServer:TSuperSocketServer); reintroduce;
     destructor Destroy; override;
   public
-    property ConnectionCount : integer read GetConnectionCount;
+    property Count : integer read GetCount;
   end;
 
   TSuperSocketServerEvent = procedure (AConnection:TConnection) of object;
@@ -604,13 +604,18 @@ end;
 
 function TConnection.GetText: string;
 begin
-  Result :=
-    'ConnectionID=' + IntToStr(ID) + '<rYu>' +
-    'LocalIP=' + LocalIP + '<rYu>' +
-    'RemoteIP=' + FRemoteIP + '<rYu>' +
-    'UserID=' + UserID + '<rYu>' +
-    'UserName=' + UserName + '<rYu>' +
-    'UserLevel=' + IntToStr(UserLevel) + '<rYu>';
+  Result := 'ID=' + IntToStr(FID);
+
+  if LocalIP <> '' then Result := Result + '<rYu>LocalIP=' + LocalIP;
+  if LocalPort <> 0 then Result := Result + '<rYu>LocalPort=' + IntToStr(LocalPort);
+
+  if RemoteIP <> '' then Result := Result + '<rYu>RemoteIP=' + FRemoteIP;
+  if RemotePort <> 0 then Result := Result + '<rYu>RemotePort=' + IntToStr(RemotePort);
+
+  if UserID <> '' then Result := Result + '<rYu>UserID=' + UserID;
+  if UserName <> '' then Result := Result + '<rYu>UserName=' + UserName;
+
+  if UserLevel <> 0 then Result := Result + '<rYu>UserLevel=' + IntToStr(UserLevel);
 end;
 
 procedure TConnection.Send(APacket: PPacket);
@@ -952,13 +957,14 @@ begin
     iCount := iCount + 1;
     if iCount > CONNECTION_POOL_SIZE then Break;
 
-    Inc(FConnectionID);
+    Inc(FID);
 
     // "FConnectionID = 0" means that Connection is not assigned.
-    if FConnectionID = 0 then Continue;
+    if FID = 0 then Continue;
 
-    if FConnections[DWord(FConnectionID) mod CONNECTION_POOL_SIZE].FID = 0 then begin
-      Result := FConnections[DWord(FConnectionID) mod CONNECTION_POOL_SIZE];
+    if FConnections[DWord(FID) mod CONNECTION_POOL_SIZE].FID = 0 then begin
+      Result := FConnections[DWord(FID) mod CONNECTION_POOL_SIZE];
+      Result.FID := FID;
       Result.FSocket := ASocket;
       Result.FRemoteIP := ARemoteIP;
       Result.RoomID := '';
@@ -974,8 +980,8 @@ var
 begin
   inherited Create;
 
-  FConnectionID := 0;
-  FConnectionCount := 0;
+  FID := 0;
+  FCount := 0;
 
   for Loop := 0 to CONNECTION_POOL_SIZE-1 do begin
     FConnections[Loop] := TConnection.Create;
@@ -992,9 +998,9 @@ begin
   inherited;
 end;
 
-function TConnectionList.GetConnectionCount: integer;
+function TConnectionList.GetCount: integer;
 begin
-  Result := FConnectionCount;
+  Result := FCount;
 end;
 
 function TConnectionList.GetConnection(AConnectionID: integer): TConnection;
@@ -1009,7 +1015,7 @@ end;
 
 procedure TConnectionList.Remove(AConnection: TConnection);
 begin
-  if AConnection.FID <> 0 then Dec(FConnectionCount);
+  if AConnection.FID <> 0 then Dec(FCount);
   AConnection.do_Init;
 end;
 
@@ -1424,11 +1430,11 @@ end;
 
 destructor TClientScheduler.Destroy;
 begin
+  ReleaseSocketUnit;
+
   FSimpleThread.TerminateNow;
 
   FreeAndNil(FQueue);
-
-  ReleaseSocketUnit;
 
   inherited;
 end;
