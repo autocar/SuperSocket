@@ -125,10 +125,12 @@ type
     /// Dummy property as like TComponent.Tag.
     Tag : integer;
 
-    IsLogined : boolean;
-
     /// Has no special purpose.  I add these because I use it often.
     UserData : pointer;
+
+    IdleCount : integer;
+
+    IsLogined : boolean;
     RoomID : string;
     Room : TObject;
     UserID : string;
@@ -138,6 +140,7 @@ type
     /// Local IP address that TSuperSocketClient send after connected.
     LocalIP : string;
 
+    /// for P2P hole punching
     LocalPort : integer;
     RemotePort : integer;
 
@@ -238,7 +241,7 @@ type
     FCount : integer;
     FConnections : array [0..CONNECTION_POOL_SIZE-1] of TConnection;
     function GetCount:integer;
-    function GetConnection(AConnectionID:integer):TConnection;
+    function GetConnection(AIndex:integer):TConnection;
   private
     procedure TerminateAll;
 
@@ -250,6 +253,7 @@ type
     destructor Destroy; override;
   public
     property Count : integer read GetCount;
+    property Items[AIndex:integer] : TConnection read GetConnection;
   end;
 
   TSuperSocketServerEvent = procedure (AConnection:TConnection) of object;
@@ -569,6 +573,8 @@ end;
 procedure TConnection.do_Init;
 begin
   FID := 0;
+
+  IdleCount := 0;
 
   if FSocket <> INVALID_SOCKET then closesocket(FSocket);
   FSocket := INVALID_SOCKET;
@@ -1005,13 +1011,13 @@ begin
   Result := FCount;
 end;
 
-function TConnectionList.GetConnection(AConnectionID: integer): TConnection;
+function TConnectionList.GetConnection(AIndex: integer): TConnection;
 begin
   Result := nil;
 
-  if AConnectionID <> 0 then begin
-    Result := FConnections[DWord(AConnectionID) mod CONNECTION_POOL_SIZE];
-    if (Result <> nil) and (Result.FID <> AConnectionID) then Result := nil;
+  if AIndex <> 0 then begin
+    Result := FConnections[DWord(AIndex) mod CONNECTION_POOL_SIZE];
+    if (Result <> nil) and (Result.FID <> AIndex) then Result := nil;
   end;
 end;
 
