@@ -30,7 +30,7 @@ object fmMain: TfmMain
       Width = 121
       Height = 21
       TabOrder = 0
-      Text = '182.252.178.101'
+      Text = '127.0.0.1'
     end
     object edRoomID: TEdit
       Left = 148
