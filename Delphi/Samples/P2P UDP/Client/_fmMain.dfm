@@ -83,24 +83,6 @@ object fmMain: TfmMain
       TabOrder = 6
       OnClick = btLoginClick
     end
-    object btStart: TButton
-      Left = 606
-      Top = 40
-      Width = 75
-      Height = 25
-      Caption = 'Start'
-      TabOrder = 7
-      OnClick = btStartClick
-    end
-    object btStop: TButton
-      Left = 687
-      Top = 40
-      Width = 75
-      Height = 25
-      Caption = 'Stop'
-      TabOrder = 8
-      OnClick = btStopClick
-    end
   end
   object moMsg: TMemo
     Left = 0
@@ -111,12 +93,5 @@ object fmMain: TfmMain
     ReadOnly = True
     ScrollBars = ssBoth
     TabOrder = 1
-  end
-  object tmClock: TTimer
-    Enabled = False
-    Interval = 8
-    OnTimer = tmClockTimer
-    Left = 388
-    Top = 288
   end
 end

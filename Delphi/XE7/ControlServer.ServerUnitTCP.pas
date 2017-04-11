@@ -145,6 +145,7 @@ procedure TServerUnitTCP.on_FRoomList_IDinUse(ARoomUnit: TRoomUnit;
 begin
   sp_IDinUse(ARoomUnit, AConnection);
   sp_UserOut(ARoomUnit, AConnection);
+  AConnection.Disconnect;
 end;
 
 procedure TServerUnitTCP.on_FRoomList_Received(ARoomUnit: TRoomUnit;

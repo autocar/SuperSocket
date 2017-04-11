@@ -61,3 +61,4 @@ Win32
 Win64 
 *.sdf 
 ipch
+*.tvsconfig

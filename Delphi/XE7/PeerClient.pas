@@ -32,6 +32,7 @@ type
     FUserID: string;
     FOnText: TStringEvent;
     FOnData: TDataEvent;
+    FOnControlData: TValueListEvent;
     function GetOnConnected: TNotifyEvent;
     function GetOnDisconnected: TNotifyEvent;
     procedure SetOnConnected(const Value: TNotifyEvent);
@@ -65,6 +66,7 @@ type
     property OnDisconnected : TNotifyEvent read GetOnDisconnected write SetOnDisconnected;
     property OnText : TStringEvent read FOnText write FOnText;
     property OnData : TDataEvent read FOnData write FOnData;
+    property OnControlData : TValueListEvent read FOnControlData write FOnControlData;
   end;
 
 implementation
@@ -137,6 +139,8 @@ end;
 procedure TPeerClient.on_FClientUnitTCP_Received(ASender: TObject;
   APacketType: TPacketType; APacket:PPacket; AValueList: TValueList);
 begin
+  if Assigned(FOnControlData) then FOnControlData(Self, AValueList);
+
   case APacketType of
     ptUserIn: rp_UserIn(APacket, AValueList);
     ptUserOut: rp_UserOut(APacket, AValueList);

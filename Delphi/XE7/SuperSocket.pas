@@ -331,7 +331,7 @@ type
     property OnReceived : TSuperSocketClientReceivedEvent read FOnReceived write FOnReceived;
   end;
 
-  TScheduleType = (stNone, stConnected, stDisconnect, stSend, stDisconnected);
+  TScheduleType = (stNone, stConnected, stDisconnect, stSend, stDisconnected, stTerminate);
 
   TSchedule = class
   private
@@ -365,6 +365,7 @@ type
     procedure TaskDisconnect;
     procedure TaskDisconnected;
     procedure TaskSend(APacket:PPacket);
+    procedure TaskTerminate;
   public
     procedure SetSocketUnit(AClientSocketUnit:TClientSocketUnit);
     procedure ReleaseSocketUnit;
@@ -1438,11 +1439,10 @@ end;
 
 destructor TClientScheduler.Destroy;
 begin
-  ReleaseSocketUnit;
-
   FSimpleThread.TerminateNow;
 
-  FreeAndNil(FQueue);
+  ReleaseSocketUnit;
+  if FQueue <> nil then FreeAndNil(FQueue);
 
   inherited;
 end;
@@ -1493,11 +1493,15 @@ begin
         stDisconnect: if Assigned(FOnTaskDisconnect) then FOnTaskDisconnect(FClientSocketUnit);
         stDisconnected: if Assigned(FOnTaskDisconnected) then FOnTaskDisconnected(FClientSocketUnit);
         stSend: do_Send(Schedule.PacketPtr);
+        stTerminate: Break;
       end;
     finally
       Schedule.Free;
     end;
   end;
+
+  ReleaseSocketUnit;
+  if FQueue <> nil then FreeAndNil(FQueue);
 end;
 
 procedure TClientScheduler.ReleaseSocketUnit;
@@ -1516,6 +1520,15 @@ begin
   Schedule := TSchedule.Create;
   Schedule.ScheduleType := stSend;
   Schedule.PacketPtr := APacket;
+  FQueue.Push(Schedule);
+end;
+
+procedure TClientScheduler.TaskTerminate;
+var
+  Schedule : TSchedule;
+begin
+  Schedule := TSchedule.Create;
+  Schedule.ScheduleType := stTerminate;
   FQueue.Push(Schedule);
 end;
 
@@ -1561,7 +1574,7 @@ end;
 
 destructor TSuperSocketClient.Destroy;
 begin
-  FreeAndNil(FClientScheduler);
+  FClientScheduler.TaskTerminate;
 
   inherited;
 end;

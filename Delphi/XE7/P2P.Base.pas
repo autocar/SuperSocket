@@ -9,14 +9,6 @@ const
   TCP_PORT = 8899;
   UDP_PORT = 9988;
 
-  {$IFDEF CPUX86}
-  SERVER_MEMORYPOOL_SIZE =  256 * 1024 * 1024;
-  {$ENDIF}
-
-  {$IFDEF CPUX64}
-  SERVER_MEMORYPOOL_SIZE = 4 * 1024 * 1024 * 1024;
-  {$ENDIF}
-
 type
   TPacketType = (
     ptNone,
@@ -46,6 +38,15 @@ type
     Data : packed array [0..4096] of byte;
   end;
   PPacketToID = ^TPacketToID;
+
+var
+  {$IFDEF CPUX86}
+  SERVER_MEMORYPOOL_SIZE : int64 =  256 * 1024 * 1024;
+  {$ENDIF}
+
+  {$IFDEF CPUX64}
+  SERVER_MEMORYPOOL_SIZE : int64 = 4 * 1024 * 1024 * 1024;
+  {$ENDIF}
 
 implementation
 

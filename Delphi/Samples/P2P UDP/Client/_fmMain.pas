@@ -18,9 +18,6 @@ type
     moMsg: TMemo;
     edMsg: TEdit;
     btLogin: TButton;
-    tmClock: TTimer;
-    btStart: TButton;
-    btStop: TButton;
     procedure FormCreate(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
     procedure FormClose(Sender: TObject; var Action: TCloseAction);
@@ -28,12 +25,6 @@ type
     procedure edMsgKeyPress(Sender: TObject; var Key: Char);
     procedure btDisconnectClick(Sender: TObject);
     procedure btLoginClick(Sender: TObject);
-    procedure tmClockTimer(Sender: TObject);
-    procedure btStartClick(Sender: TObject);
-    procedure btStopClick(Sender: TObject);
-  private
-    FCountSend : DWord;
-    FCountRecv : DWord;
   private
     FPeerClient : TPeerClient;
     procedure on_FPeerClient_Connected(ASender:TObject);
@@ -68,16 +59,6 @@ begin
   FPeerClient.sp_Login(edRoomID.Text, edUserID.Text);
 end;
 
-procedure TfmMain.btStartClick(Sender: TObject);
-begin
-  tmClock.Enabled := true;
-end;
-
-procedure TfmMain.btStopClick(Sender: TObject);
-begin
-  tmClock.Enabled := false;
-end;
-
 procedure TfmMain.edMsgKeyPress(Sender: TObject; var Key: Char);
 begin
   if Key = #13 then begin
@@ -96,9 +77,6 @@ procedure TfmMain.FormCreate(Sender: TObject);
 begin
   SetPriorityClass( GetCurrentProcess, REALTIME_PRIORITY_CLASS );
   SetThreadPriorityFast;
-
-  FCountSend := 0;
-  FCountRecv := 0;
 
   FPeerClient := TPeerClient.Create;
   FPeerClient.OnConnected := on_FPeerClient_Connected;
@@ -119,15 +97,8 @@ end;
 
 procedure TfmMain.on_FPeerClient_Data(Sender: TObject; AData: pointer;
   ASize: integer);
-var
-  Count : DWord;
 begin
-  Move(AData^, Count, ASize);
-
-  if (Count - FCountRecv) <> 1 then
-    moMsg.Lines.Add( Format('Count: %d, FCountRecv: %d', [Count, FCountRecv]) );
-
-  FCountRecv := Count;
+  //
 end;
 
 procedure TfmMain.on_FPeerClient_Disconnected(ASender: TObject);
@@ -138,12 +109,6 @@ end;
 procedure TfmMain.on_FPeerClient_Text(Sender: TObject; const AText: string);
 begin
   moMsg.Lines.Add(AText);
-end;
-
-procedure TfmMain.tmClockTimer(Sender: TObject);
-begin
-  Inc(FCountSend);
-  FPeerClient.SendToAll(@FCountSend, SizeOf(FCountSend));
 end;
 
 end.
