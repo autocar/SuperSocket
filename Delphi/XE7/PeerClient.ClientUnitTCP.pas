@@ -13,13 +13,8 @@ type
 
   TClientUnitTCP = class
   private
-    FIdleCount : integer;
-    FIdleCountThread : TSimpleThread;
-  private
     FSocket : TSuperSocketClient;
     procedure on_FSocket_Received(ASender:TObject; APacket:PPacket);
-  private
-    procedure sp_None;
   private
     procedure rp_TextTCP(APacket:PPacket);
     procedure rp_DataTCP(APacket:PPacket);
@@ -74,38 +69,13 @@ begin
 
   FSocket := TSuperSocketClient.Create(nil);
   FSocket.OnReceived := on_FSocket_Received;
-
-  FIdleCount := 0;
-
-  FIdleCountThread := TSimpleThread.Create(
-    'TClientUnitTCP.FIdleCountThread',
-    procedure (ASimpleThread:TSimpleThread)
-    begin
-      while ASimpleThread.Terminated = false do begin
-        if FSocket.Connected then begin
-          sp_None;
-
-          // 서버로부터 최소 10초 이상 응답이 없었다면 접속을 끝는다.
-          if InterlockedIncrement(FIdleCount) > 1 then begin
-            FSocket.Disconnect;
-            if Assigned(FSocket.OnDisconnected) then FSocket.OnDisconnected(FSocket);
-          end;
-        end;
-
-        ASimpleThread.Sleep(10000);
-      end;
-    end
-  );
 end;
 
 destructor TClientUnitTCP.Destroy;
 begin
-  FIdleCountThread.TerminateNow;
-
   Disconnect;
 
   FreeAndNil(FSocket);
-  FreeAndNil(FIdleCountThread);
 
   inherited;
 end;
@@ -148,23 +118,9 @@ begin
   end;
 end;
 
-procedure TClientUnitTCP.sp_None;
-var
-  Packet : PPacket;
-begin
-  Packet := TPacket.GetPacket(pdNone, Integer(ptNone), nil, 0);
-  try
-    FSocket.Send(Packet);
-  finally
-    FreeMem(Packet);
-  end;
-end;
-
 procedure TClientUnitTCP.on_FSocket_Received(ASender: TObject;
   APacket: PPacket);
 begin
-  InterlockedExchange(FIdleCount, 0);
-
   case TPacketType(APacket^.PacketType) of
     ptTextTCP: rp_TextTCP(APacket);
     ptDataTCP: rp_DataTCP(APacket);

@@ -11,8 +11,6 @@ uses
 type
   TServerUnitTCP = class
   private
-    FIdleCountThread : TSimpleThread;
-  private
     FRoomList : TRoomList;
     procedure on_FRoomList_UserIn(ARoomUnit:TRoomUnit; AConnection:TConnection);
     procedure on_FRoomList_UserOut(ARoomUnit:TRoomUnit; AConnection:TConnection);
@@ -27,7 +25,6 @@ type
     procedure on_FSocket_Disconnected(AConnection:TConnection);
     procedure on_FSocket_Received(AConnection:TConnection; APacket:PPacket);
   private
-    procedure rp_None(AConnection:TConnection; APacket:PPacket);
     procedure rp_Login(AConnection:TConnection; APacket:PPacket);
     procedure rp_TextTCP(AConnection:TConnection; APacket:PPacket);
     procedure rp_DataTCP(AConnection:TConnection; APacket:PPacket);
@@ -73,46 +70,15 @@ begin
   FSocket.OnConnected := on_FSocket_Connected;
   FSocket.OnDisconnected := on_FSocket_Disconnected;
   FSocket.OnReceived := on_FSocket_Received;
-
-  FIdleCountThread := TSimpleThread.Create(
-    'TServerUnitTCP.FIdleCountThread',
-    procedure (ASimpleThread:TSimpleThread)
-    var
-      Loop: Integer;
-      Connection : TConnection;
-    begin
-      while ASimpleThread.Terminated = false do begin
-        for Loop := 0 to CONNECTION_POOL_SIZE-1 do begin
-          Connection := FSocket.ConnectionList.Items[Loop];
-
-          if Connection = nil then Continue;
-          if Connection.IsLogined = false then Continue;
-
-          if InterlockedIncrement(Connection.IdleCount) > 2 then begin
-            {$IFDEF DEBUG}
-            Trace( Format('Connection is in the idle status - UserID: %s', [Connection.UserID]) );
-            {$ENDIF}
-
-            Connection.Disconnect;
-          end;
-        end;
-
-        ASimpleThread.Sleep(10000);
-      end;
-    end
-  );
 end;
 
 destructor TServerUnitTCP.Destroy;
 begin
-  FIdleCountThread.TerminateNow;
-
   Stop;
 
   FreeAndNil(FSocket);
   FreeAndNil(FRoomList);
   FreeAndNil(FDatabase);
-  FreeAndNil(FIdleCountThread);
 
   inherited;
 end;
@@ -200,7 +166,6 @@ begin
     Packet := CloneMemory(APacket, APacket^.Size);
 
     case TPacketType(APacket^.PacketType) of
-      ptNone: rp_None(AConnection, Packet);
       ptLogin: rp_Login(AConnection, Packet);
       ptTextTCP: rp_TextTCP(AConnection, Packet);
       ptDataTCP: rp_DataTCP(AConnection, Packet);
@@ -232,11 +197,6 @@ end;
 procedure TServerUnitTCP.rp_Login(AConnection: TConnection; APacket: PPacket);
 begin
   FDatabase.Login(AConnection, APacket);
-end;
-
-procedure TServerUnitTCP.rp_None(AConnection: TConnection; APacket: PPacket);
-begin
-  AConnection.Send(APacket);
 end;
 
 procedure TServerUnitTCP.rp_TextTCP(AConnection: TConnection; APacket: PPacket);

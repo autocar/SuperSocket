@@ -125,7 +125,7 @@ type
     /// Dummy property as like TComponent.Tag.
     Tag : integer;
 
-    /// Has no special purpose.  I add these because I use it often.
+    /// Dummy property as like TComponent.Tag.
     UserData : pointer;
 
     IdleCount : integer;
@@ -262,6 +262,7 @@ type
 
   TSuperSocketServer = class (TComponent)
   private
+    FIdleCountThread : TSimpleThread;
     FConnectionList : TConnectionList;
   private
     FListener : TListener;
@@ -304,6 +305,9 @@ type
   TSuperSocketClientReceivedEvent = procedure (ASender:TObject; APacket:PPacket) of object;
 
   TClientSocketUnit = class
+  private
+    FIdleCount : integer;
+    FIdleCountThread : TSimpleThread;
   private
     FSocket : TSocket;
     FPacketReader : TPacketReader;
@@ -405,6 +409,9 @@ type
   end;
 
 implementation
+
+var
+  NilPacket : PPacket;
 
 procedure SetSocketDelayOption(ASocket:integer; ADelay:boolean);
 var
@@ -602,7 +609,9 @@ begin
   FPacketReader.Write(UserName, AData, ASize);
   if FPacketReader.canRead then begin
     PacketPtr := FPacketReader.Read;
-    if Assigned(FSuperSocketServer.FOnReceived) then FSuperSocketServer.FOnReceived(Self, PacketPtr);
+
+    if PacketPtr^.DataSize = 0 then Send(NilPacket)
+    else if Assigned(FSuperSocketServer.FOnReceived) then FSuperSocketServer.FOnReceived(Self, PacketPtr);
   end;
 end;
 
@@ -1052,12 +1061,43 @@ begin
   FCompletePort.OnAccepted   := on_FCompletePort_Accepted;
   FCompletePort.OnReceived   := on_FCompletePort_Received;
   FCompletePort.OnDisconnect := on_FCompletePort_Disconnect;
+
+  FIdleCountThread := TSimpleThread.Create(
+    'TSuperSocketServer.FIdleCountThread',
+    procedure (ASimpleThread:TSimpleThread)
+    var
+      Loop: Integer;
+      Connection : TConnection;
+    begin
+      while ASimpleThread.Terminated = false do begin
+        for Loop := 0 to CONNECTION_POOL_SIZE-1 do begin
+          Connection := ConnectionList.Items[Loop];
+
+          if Connection = nil then Continue;
+          if Connection.IsLogined = false then Continue;
+
+          if InterlockedIncrement(Connection.IdleCount) > 2 then begin
+            {$IFDEF DEBUG}
+            Trace( Format('Connection is in the idle status - UserID: %s', [Connection.UserID]) );
+            {$ENDIF}
+
+            Connection.Disconnect;
+          end;
+        end;
+
+        ASimpleThread.Sleep(10000);
+      end;
+    end
+  );
 end;
 
 destructor TSuperSocketServer.Destroy;
 begin
   FListener.Stop;
 
+  FIdleCountThread.TerminateNow;
+
+  FreeAndNil(FIdleCountThread);
   FreeAndNil(FConnectionList);
   FreeAndNil(FListener);
   FreeAndNil(FCompletePort);
@@ -1340,6 +1380,28 @@ begin
   FSocket := INVALID_SOCKET;
 
   FPacketReader := TPacketReader.Create;
+
+  FIdleCount := 0;
+
+  FIdleCountThread := TSimpleThread.Create(
+    'TClientSocketUnit.FIdleCountThread',
+    procedure (ASimpleThread:TSimpleThread)
+    begin
+      while ASimpleThread.Terminated = false do begin
+        if FSocket <> INVALID_SOCKET then begin
+          Send(nil);
+
+          // 서버로부터 최소 10초 이상 응답이 없었다면 접속을 끝는다.
+          if InterlockedIncrement(FIdleCount) > 1 then begin
+            Disconnect;
+            if Assigned(FOnDisconnected) then FOnDisconnected(Self);
+          end;
+        end;
+
+        ASimpleThread.Sleep(10000);
+      end;
+    end
+  );
 end;
 
 destructor TClientSocketUnit.Destroy;
@@ -1348,6 +1410,9 @@ begin
 
   closesocket(FSocket);
 
+  FIdleCountThread.TerminateNow;
+
+  FreeAndNil(FIdleCountThread);
   FreeAndNil(FPacketReader);
 
   inherited;
@@ -1382,7 +1447,9 @@ begin
       Continue;
     end;
 
-    if Assigned(FOnReceived) then FOnReceived(Self, PacketPtr);
+    InterlockedExchange(FIdleCount, 0);
+
+    if Assigned(FOnReceived) and (PacketPtr^.DataSize > 0) then FOnReceived(Self, PacketPtr);
   end;
 end;
 
@@ -1409,6 +1476,7 @@ end;
 
 procedure TClientSocketUnit.Send(APacket: PPacket);
 begin
+  if APacket = nil then APacket := NilPacket;  
   if WinSock2.send(FSocket, APacket^, APacket^.Size, 0) = SOCKET_ERROR then do_FireDisconnectedEvent;
 end;
 
@@ -1611,6 +1679,8 @@ begin
 end;
 
 initialization
+  NilPacket := TPacket.GetPacket(pdNone, 0, nil, 0);
+
   if WSAStartup(WINSOCK_VERSION, WSAData) <> 0 then
     raise Exception.Create(SysErrorMessage(GetLastError));
 

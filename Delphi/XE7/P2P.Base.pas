@@ -11,8 +11,6 @@ const
 
 type
   TPacketType = (
-    ptNone,
-
     ptLogin, ptErLogin, ptOkLogin,
     ptIDinUse, ptUserLimit,
     ptUserList, ptUserIn, ptUserOut,
