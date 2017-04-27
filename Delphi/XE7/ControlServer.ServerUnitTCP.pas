@@ -4,8 +4,8 @@ interface
 
 uses
   P2P.Base,
-  RoomList, Database,
-  DebugTools, SuperSocket, ValueList, MemoryPool, SimpleThread,
+  SuperSocket, SuperSocket.RoomList, Database,
+  DebugTools, ValueList, MemoryPool, SimpleThread,
   Windows, SysUtils, Classes, TypInfo;
 
 type
